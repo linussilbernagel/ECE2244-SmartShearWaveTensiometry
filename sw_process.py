@@ -194,14 +194,15 @@ class sw_process:
         kalseed = self.tens['pp']['kalseed']
         
         acc = ad['data'][:, self.tens['cp']['accch']] * self.tens['cp']['acccal'] / self.tens['cp']['accgain']
+        print(acc)
         zs = np.zeros((round(ad['freq'] / self.tens['cp']['tapfreq']), acc.shape[1]))
         acc = np.vstack((zs, acc, zs))
-
         self.tens['cp']['taps'] += zs.shape[0]
+
 
         # Bandpass filter each accelerometer signal
         for i in range(nacc):
-            acc[:, i] = np.convolve(acc[:, i], self.tens['pp']['bf'], mode='same')
+            acc[:, i] = signal.filtfilt(self.tens['pp']['bf'], self.tens['pp']['af'], acc[:, i])
 
         # Run the Kalman filter, segment method
         sgn = lambda x: 1 - 2*x
@@ -209,6 +210,10 @@ class sw_process:
             bkwd = 0
             i1 = 0
             i2 = ntaps
+        elif kalseed == 'fwdbkwd':
+            bkwd = [0,1]
+            i1 = [0,0]
+            i2 = [ntaps, ntaps]
         else:
             bkwd = np.zeros((len(self.tens['cp']['taps']) - 1) * 2 + 2)
             i1 = np.zeros(len(self.tens['cp']['taps']) + 1)
@@ -355,7 +360,7 @@ class sw_process:
         seg['dTAvar'] = np.zeros((i2, nacc))
         seg['wsk'] = np.zeros((i2, 1))
         
-        for ii in range(1, i2 - i1 + 2):
+        for ii in range(i2 - i1 + 1):
             # forward or backward
             if bkwd:
                 i = i2 - ii + 1
@@ -368,7 +373,7 @@ class sw_process:
             for j in range(nacc):
                 # set up adaptive window center
                 if self.tens['pp']['winseed']:
-                    if ii == 1:
+                    if ii == 0:
                         seg['s'][i][ j] = -self.tens['pp']['window'][0] / 1000 * ad['freq']
                     else:
                         seg['s'][i][j] = np.round(seg['TA'][ilst][j] / 1000 * ad['freq'])
@@ -377,8 +382,9 @@ class sw_process:
                 s = seg['s'][i][j]
 
                 # between accelerometers
-                if j < nacc:
-                    template = acc[self.tens['cp']['taps'][i] + self.tens['pp']['template'] + s][j]
+                if j < nacc-1:
+                    print(type(self.tens['cp']['taps'][i] + self.tens['pp']['template'] + s))
+                    template = acc[(self.tens['cp']['taps'][i] + self.tens['pp']['template'] + s).astype(int)][j]
                     search = acc[self.tens['cp']['taps'][i] + self.tens['pp']['TABsearch'] + s][j + 1]
                     lagframes, seg['TAB'][i, j], seg['TABcorr'][i, j] = self.computeLag(template, search, ad['freq'], self.tens['pp']['TABshift'])
                     seg['TABvar'][i, j] = np.dot(self.tens['pp']['TABvarp'], [seg['TABcorr'][i, j] ** 2, seg['TABcorr'][i, j], 1])
