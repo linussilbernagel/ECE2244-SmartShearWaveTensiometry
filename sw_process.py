@@ -193,13 +193,12 @@ class sw_process:
         nacc = len(self.tens['cp']['accch'])
         kalseed = self.tens['pp']['kalseed']
         
-        acc = ad['data'][:, self.tens['cp']['accch']] * self.tens['cp']['acccal'] / self.tens['cp']['accgain']
-        print(acc)
+        acc = ad['data'][:, self.tens['cp']['accch']] * (self.tens['cp']['acccal'] / self.tens['cp']['accgain'])
         zs = np.zeros((round(ad['freq'] / self.tens['cp']['tapfreq']), acc.shape[1]))
         acc = np.vstack((zs, acc, zs))
         self.tens['cp']['taps'] += zs.shape[0]
 
-
+        # print(ad['data'][:][ 0])
         # Bandpass filter each accelerometer signal
         for i in range(nacc):
             acc[:, i] = signal.filtfilt(self.tens['pp']['bf'], self.tens['pp']['af'], acc[:, i])
@@ -289,8 +288,7 @@ class sw_process:
         # between a template A and search window B
 
         # Compute the normalized cross-correlations
-        r = normxcorr1(self, A, B)
-                
+        r = normxcorr1(A, B)
         # Finding the peak correlation
         peakCorr = np.max(r)
         peakInd = np.argmax(r)
@@ -304,10 +302,9 @@ class sw_process:
             lagFrames = peakInd - 1 - shift + delta
         else:
             lagFrames = peakInd - 1 - shift
-        
+        # TODO: Might need to remove the -1 above
         # Time lag between wave arrival at two measurement locations
         lagTime = lagFrames / freq * 1000  # [ms]
-        
         return lagFrames, lagTime, peakCorr, r
 
     def waveSpeedSTD(self, ad, acc):
@@ -360,13 +357,13 @@ class sw_process:
         seg['dTAvar'] = np.zeros((i2, nacc))
         seg['wsk'] = np.zeros((i2, 1))
         
-        for ii in range(i2 - i1 + 1):
+        for ii in range(i2 - i1):
             # forward or backward
             if bkwd:
-                i = i2 - ii + 1
+                i = i2 - ii
                 ilst = i + 1
             else:
-                i = ii + i1 - 1
+                i = ii + i1
                 ilst = i - 1
 
             # for each accelerometer
@@ -374,30 +371,32 @@ class sw_process:
                 # set up adaptive window center
                 if self.tens['pp']['winseed']:
                     if ii == 0:
-                        seg['s'][i][ j] = -self.tens['pp']['window'][0] / 1000 * ad['freq']
+                        seg['s'][i, j] = -self.tens['pp']['window'][0] / 1000 * ad['freq']
                     else:
-                        seg['s'][i][j] = np.round(seg['TA'][ilst][j] / 1000 * ad['freq'])
+                        seg['s'][i, j] = np.round(seg['TA'][ilst, j] / 1000 * ad['freq'])
                 else:
-                    seg['s'][i][j] = 0
-                s = seg['s'][i][j]
+                    seg['s'][i, j] = 0
+                s = seg['s'][i, j]
+
+                # print(i, ilst)
+                # print(seg)
 
                 # between accelerometers
                 if j < nacc-1:
-                    print(type(self.tens['cp']['taps'][i] + self.tens['pp']['template'] + s))
-                    template = acc[(self.tens['cp']['taps'][i] + self.tens['pp']['template'] + s).astype(int)][j]
-                    search = acc[self.tens['cp']['taps'][i] + self.tens['pp']['TABsearch'] + s][j + 1]
-                    lagframes, seg['TAB'][i, j], seg['TABcorr'][i, j] = self.computeLag(template, search, ad['freq'], self.tens['pp']['TABshift'])
+                    template = acc[(self.tens['cp']['taps'][i] + self.tens['pp']['template'] + s).astype(int), j]
+                    search = acc[(self.tens['cp']['taps'][i] + self.tens['pp']['TABsearch'] + s).astype(int), j + 1]
+                    lagframes, seg['TAB'][i, j], seg['TABcorr'][i, j], _ = self.computeLag(template, search, ad['freq'], self.tens['pp']['TABshift'])
                     seg['TABvar'][i, j] = np.dot(self.tens['pp']['TABvarp'], [seg['TABcorr'][i, j] ** 2, seg['TABcorr'][i, j], 1])
 
                 # between events
-                if ii > 1:
-                    template = acc[self.tens['cp']['taps'][ilst] + self.tens['pp']['template'] + s, j]
-                    search = acc[self.tens['cp']['taps'][i] + self.tens['pp']['dTAsearch'] + s, j]
-                    lagframes, seg['dTA'][i, j], seg['dTAcorr'][i, j] = self.computeLag(template, search, ad['freq'], self.tens['pp']['dTAshift'])
+                if ii > 0:
+                    template = acc[(self.tens['cp']['taps'][ilst] + self.tens['pp']['template'] + s).astype(int), j]
+                    search = acc[(self.tens['cp']['taps'][i] + self.tens['pp']['dTAsearch'] + s).astype(int), j]
+                    lagframes, seg['dTA'][i, j], seg['dTAcorr'][i, j], _ = self.computeLag(template, search, ad['freq'], self.tens['pp']['dTAshift'])
                     seg['dTAvar'][i, j] = np.dot(self.tens['pp']['dTAvarp'], [seg['dTAcorr'][i, j] ** 2, seg['dTAcorr'][i, j], 1])
 
             # Kalman
-            if ii == 1:
+            if ii == 0:
                 # Initialize the estimate of the arrival times TA and TB, since DA and DB are  in mm, comes out in ms
                 xe = (self.tens['cp']['accdis'] / np.mean(np.diff(self.tens['cp']['accdis']) / seg['TAB'][i, :])).reshape(-1, 1)
                 seg['TA'][i, :] = xe.flatten()
@@ -412,7 +411,7 @@ class sw_process:
                 P = self.tens['kf']['P']
             else:
                 # Define the measurements z consisting of TAB, and speed constraints based on accelerometer locations
-                z = np.concatenate((seg['TAB'][i, :], np.zeros((nacc - 1, 1))), axis=0)
+                z = np.concatenate((seg['TAB'][i, :], np.zeros((1))), axis=0)
                 # Define the inputs u, change in wave arrival at accelerometers between successive taps
                 u = seg['dTA'][i, :].reshape(-1, 1)
 

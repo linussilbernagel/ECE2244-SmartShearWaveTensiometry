@@ -101,7 +101,7 @@ class sw_load_notSensor:
 
         self.ad['freq'] = data['sampleRate'][0][0]
         self.ad['ch'] = [data['sensorTypes']['accel']['AchillesOrRight']['channels'][0][0], data['sensorTypes']['accel']['AchillesOrRight']['channels'][1][0]]
-        self.ad['data'] = np.array(data['sensorTypes']['accel']['AchillesOrRight']['signal'])
+        self.ad['data'] = np.array(data['sensorTypes']['accel']['AchillesOrRight']['signal']).T
 
         # Assume tapper signal is a pulse - can simply find signal rise and fall
         tappersignal = np.array([0] + list(data['tapper']['signal'][0][:-1]))
@@ -109,7 +109,7 @@ class sw_load_notSensor:
         kk = np.where(np.diff(tappersignal) < 0)[0]
         self.tens['cp']['taps'] = jj
         tapon = kk[1] - jj[0]
-        self.tens['cp']['accch'] = list(range(1, len(data['sensorTypes']['accel']['AchillesOrRight']['channels']) + 1))
+        self.tens['cp']['accch'] = list(range(0, len(data['sensorTypes']['accel']['AchillesOrRight']['channels'])))
         self.tens['cp']['acccal'] = 1 / data['sensorTypes']['accel']['AchillesOrRight']['sensitivity'][0][0]
         self.tens['cp']['accgain'] = data['sensorTypes']['accel']['AchillesOrRight']['gain'][0][0]
         self.tens['cp']['accdis'] = [18] + [data['sensorTypes']['accel']['AchillesOrRight']['travelDist'][0][0] + 18] # mm from tapper to accelerometer
