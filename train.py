@@ -3,6 +3,8 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
 import numpy as np
+import pandas as pd
+from sklearn.model_selection import train_test_split
 
 # Define your CNN architecture
 class CNN(nn.Module):
@@ -12,7 +14,8 @@ class CNN(nn.Module):
         self.conv2 = nn.Conv1d(in_channels=32, out_channels=64, kernel_size=3)
         self.conv3 = nn.Conv1d(in_channels=64, out_channels=128, kernel_size=3)
         self.pool = nn.MaxPool1d(kernel_size=2)
-        self.fc1 = nn.Linear(128 * ((input_shape[0] - 4) // 8), 64)
+        self.dropout = nn.Dropout(0.25)
+        self.fc1 = nn.Linear(15488, 64)
         self.fc2 = nn.Linear(64, num_classes)
 
     def forward(self, x):
@@ -21,17 +24,26 @@ class CNN(nn.Module):
         x = torch.relu(self.conv2(x))
         x = self.pool(x)
         x = torch.relu(self.conv3(x))
-        x = x.view(-1, 128 * ((x.shape[2] - 4) // 8))
+        batch_size = x.size(0)  # Get the batch size dynamically
+        x = x.view(batch_size, -1)
+        x = self.dropout(x)
         x = torch.relu(self.fc1(x))
         x = self.fc2(x)
         return x
+    
+dataset = pd.read_csv('./Code/data.csv', header=None, dtype=float)
+label = pd.read_csv('./Code/labels.csv', header=None, dtype=int)
 
-# Example usage
-input_shape = (input_dim, input_length)  # Define your input shape based on your data
-num_classes = 10  # Define the number of classes in your classification task
+x_train, x_test, y_train, y_test = train_test_split(dataset.values, label.values.T - 1, test_size=0.2, random_state=42) 
+# y_train = y_train - 1
+# y_test = y_test - 1
 
-# Create an instance of the CNN model
-model = CNN(input_shape, num_classes)
+# # Example usage
+num_classes = 4  # Define the number of classes in your classification task
+
+# # Create an instance of the CNN model
+model = CNN((500,1), num_classes=num_classes)
+# model = CNN()
 
 # Define loss function and optimizer
 criterion = nn.CrossEntropyLoss()
@@ -39,19 +51,30 @@ optimizer = optim.Adam(model.parameters(), lr=0.001)
 
 # Convert your data into PyTorch tensors and create DataLoader
 # Assuming x_train, y_train, x_val, y_val, x_test, y_test are numpy arrays
-train_dataset = TensorDataset(torch.tensor(x_train, dtype=torch.float32), torch.tensor(y_train, dtype=torch.long))
-train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
-val_dataset = TensorDataset(torch.tensor(x_val, dtype=torch.float32), torch.tensor(y_val, dtype=torch.long))
-val_loader = DataLoader(val_dataset, batch_size=32)
+x_train_tensor = torch.tensor(x_train, dtype=torch.float32).unsqueeze(1)  # Add channel dimension
+y_train_tensor = torch.tensor(y_train, dtype=int)
+x_test_tensor = torch.tensor(x_test, dtype=torch.float32).unsqueeze(1)  # Add channel dimension
+y_test_tensor = torch.tensor(y_test, dtype=int)
+
+# Flatten the labels tensor
+y_train_tensor = torch.flatten(y_train_tensor)
+y_test_tensor = torch.flatten(y_test_tensor)
+
+
+train_dataset = TensorDataset(x_train_tensor, y_train_tensor)
+train_loader = DataLoader(train_dataset, batch_size=1, shuffle=True)
+test_dataset = TensorDataset(x_test_tensor, y_test_tensor)
+test_loader = DataLoader(test_dataset, batch_size=1)
+
 
 # Training loop
-num_epochs = 10
+num_epochs = 100
 for epoch in range(num_epochs):
     model.train()
     running_loss = 0.0
     for inputs, labels in train_loader:
         optimizer.zero_grad()
-        outputs = model(inputs.permute(0, 2, 1))  # PyTorch expects input in (batch_size, channels, sequence_length) format
+        outputs = model(inputs)  # PyTorch expects input in (batch_size, channels, sequence_length) format
         loss = criterion(outputs, labels)
         loss.backward()
         optimizer.step()
@@ -63,8 +86,8 @@ for epoch in range(num_epochs):
     correct = 0
     total = 0
     with torch.no_grad():
-        for inputs, labels in val_loader:
-            outputs = model(inputs.permute(0, 2, 1))
+        for inputs, labels in test_loader:
+            outputs = model(inputs)
             _, predicted = torch.max(outputs, 1)
             total += labels.size(0)
             correct += (predicted == labels).sum().item()
@@ -73,14 +96,12 @@ for epoch in range(num_epochs):
     print(f'Epoch {epoch+1}/{num_epochs}, Loss: {epoch_loss:.4f}, Validation Accuracy: {val_accuracy:.4f}')
 
 # Test the model
-test_dataset = TensorDataset(torch.tensor(x_test, dtype=torch.float32), torch.tensor(y_test, dtype=torch.long))
-test_loader = DataLoader(test_dataset, batch_size=32)
 model.eval()
 correct = 0
 total = 0
 with torch.no_grad():
     for inputs, labels in test_loader:
-        outputs = model(inputs.permute(0, 2, 1))
+        outputs = model(inputs)
         _, predicted = torch.max(outputs, 1)
         total += labels.size(0)
         correct += (predicted == labels).sum().item()

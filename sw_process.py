@@ -8,6 +8,33 @@ import numpy as np
 from scipy import signal
 import copy
 
+def kalman_update(xprior, P, B, F, Q, H, R, u, z):
+    # PREDICT
+    # A priori state estimate
+    xe = np.dot(F, xprior) + np.squeeze(np.dot(B, u))
+    # A priori error covariance
+    P = np.dot(F, np.dot(P, F.T)) + Q
+
+    # UPDATE
+    # Measurement pre-fit residual
+    H = np.array(H)
+    ye = z.T - np.squeeze(np.dot(H, xe))
+    # Pre-fit residual covariance
+    S = np.dot(H, np.dot(P, H.T)) + R
+    # Optimal Kalman Gain
+    K = np.dot(P, np.dot(H.T, np.linalg.inv(S)))
+    # Updated state estimate
+    # print(np.dot(K, ye))
+    xe = np.squeeze(xe) + np.dot(K, ye).T
+    # Updated estimate covariance
+    P = np.dot((np.eye(P.shape[0]) - np.dot(K, H)), P)
+    # Measurement post-fit residual
+    ye = z - np.dot(H, xe)
+
+
+    return xe, P
+
+
 class sw_process:
     def __init__(self, swc):
         # ad - A/D data
@@ -198,10 +225,10 @@ class sw_process:
         acc = np.vstack((zs, acc, zs))
         self.tens['cp']['taps'] += zs.shape[0]
 
-        # print(ad['data'][:][ 0])
         # Bandpass filter each accelerometer signal
         for i in range(nacc):
-            acc[:, i] = signal.filtfilt(self.tens['pp']['bf'], self.tens['pp']['af'], acc[:, i])
+            # print(self.tens['pp']['bf'], self.tens['pp']['af'])
+            acc[:, i] = signal.filtfilt(self.tens['pp']['bf'], self.tens['pp']['af'], acc[:, i], padtype = 'odd', padlen=3*(max(len(self.tens['pp']['bf']),len(self.tens['pp']['af']))-1))
 
         # Run the Kalman filter, segment method
         sgn = lambda x: 1 - 2*x
@@ -214,6 +241,8 @@ class sw_process:
             i1 = [0,0]
             i2 = [ntaps, ntaps]
         else:
+            basic = self.waveSpeedSTD(ad, acc)
+
             bkwd = np.zeros((len(self.tens['cp']['taps']) - 1) * 2 + 2)
             i1 = np.zeros(len(self.tens['cp']['taps']) + 1)
             i2 = np.zeros(len(self.tens['cp']['taps']) + 1)
@@ -238,29 +267,65 @@ class sw_process:
             # Save which columns are which variables (same for all)
             if s == 0:
                 nxt = 0
-                col_s = list(range(1, seg['s'].shape[1] + 1))
-                col_TA = list(range(seg['s'].shape[1] + 1, seg['s'].shape[1] + seg['TA'].shape[1] + 1))
-                col_TAvar = list(range(seg['s'].shape[1] + seg['TA'].shape[1] + 1, seg['s'].shape[1] + seg['TA'].shape[1] + seg['TAvar'].shape[1] + 1))
-                col_TAB = list(range(seg['s'].shape[1] + seg['TA'].shape[1] + seg['TAvar'].shape[1] + 1, seg['s'].shape[1] + seg['TA'].shape[1] + seg['TAvar'].shape[1] + seg['TAB'].shape[1] + 1))
-                col_TABcorr = list(range(seg['s'].shape[1] + seg['TA'].shape[1] + seg['TAvar'].shape[1] + seg['TAB'].shape[1] + 1, seg['s'].shape[1] + seg['TA'].shape[1] + seg['TAvar'].shape[1] + seg['TAB'].shape[1] + seg['TABcorr'].shape[1] + 1))
-                col_TABvar = list(range(seg['s'].shape[1] + seg['TA'].shape[1] + seg['TAvar'].shape[1] + seg['TAB'].shape[1] + seg['TABcorr'].shape[1] + 1, seg['s'].shape[1] + seg['TA'].shape[1] + seg['TAvar'].shape[1] + seg['TAB'].shape[1] + seg['TABcorr'].shape[1] + seg['TABvar'].shape[1] + 1))
-                col_dTA = list(range(seg['s'].shape[1] + seg['TA'].shape[1] + seg['TAvar'].shape[1] + seg['TAB'].shape[1] + seg['TABcorr'].shape[1] + seg['TABvar'].shape[1] + 1, seg['s'].shape[1] + seg['TA'].shape[1] + seg['TAvar'].shape[1] + seg['TAB'].shape[1] + seg['TABcorr'].shape[1] + seg['TABvar'].shape[1] + seg['dTA'].shape[1] + 1))
-                col_dTAcorr = list(range(seg['s'].shape[1] + seg['TA'].shape[1] + seg['TAvar'].shape[1] + seg['TAB'].shape[1] + seg['TABcorr'].shape[1] + seg['TABvar'].shape[1] + seg['dTA'].shape[1] + 1, seg['s'].shape[1] + seg['TA'].shape[1] + seg['TAvar'].shape[1] + seg['TAB'].shape[1] + seg['TABcorr'].shape[1] + seg['TABvar'].shape[1] + seg['dTA'].shape[1] + seg['dTAcorr'].shape[1] + 1))
-                col_dTAvar = list(range(seg['s'].shape[1] + seg['TA'].shape[1] + seg['TAvar'].shape[1] + seg['TAB'].shape[1] + seg['TABcorr'].shape[1] + seg['TABvar'].shape[1] + seg['dTA'].shape[1] + seg['dTAcorr'].shape[1] + 1, seg['s'].shape[1] + seg['TA'].shape[1] + seg['TAvar'].shape[1] + seg['TAB'].shape[1] + seg['TABcorr'].shape[1] + seg['TABvar'].shape[1] + seg['dTA'].shape[1] + seg['dTAcorr'].shape[1] + seg['dTAvar'].shape[1] + 1))
-                col_wsk = list(range(seg['s'].shape[1] + seg['TA'].shape[1] + seg['TAvar'].shape[1] + seg['TAB'].shape[1] + seg['TABcorr'].shape[1] + seg['TABvar'].shape[1] + seg['dTA'].shape[1] + seg['dTAcorr'].shape[1] + seg['dTAvar'].shape[1] + 1, seg['s'].shape[1] + seg['TA'].shape[1] + seg['TAvar'].shape[1] + seg['TAB'].shape[1] + seg['TABcorr'].shape[1] + seg['TABvar'].shape[1] + seg['dTA'].shape[1] + seg['dTAcorr'].shape[1] + seg['dTAvar'].shape[1] + seg['wsk'].shape[1] + 1))
-            segsA = np.zeros((len(seg['s']), col_wsk[-1]))
+                col_s = nxt + np.arange(seg['s'].shape[1])
+                nxt = col_s[-1] + 1
+                col_TA = nxt + np.arange(seg['TA'].shape[1])
+                nxt = col_TA[-1] + 1
+                col_TAvar = nxt + np.arange(seg['TAvar'].shape[1])
+                nxt = col_TAvar[-1] + 1
+                col_TAB = nxt + np.arange(seg['TAB'].shape[1])
+                nxt = col_TAB[-1] + 1
+                col_TABcorr = nxt + np.arange(seg['TABcorr'].shape[1])
+                nxt = col_TABcorr[-1] + 1
+                col_TABvar = nxt + np.arange(seg['TABvar'].shape[1])
+                nxt = col_TABvar[-1] + 1
+                col_dTA = nxt + np.arange(seg['dTA'].shape[1])
+                nxt = col_dTA[-1] + 1
+                col_dTAcorr = nxt + np.arange(seg['dTAcorr'].shape[1])
+                nxt = col_dTAcorr[-1] + 1
+                col_dTAvar = nxt + np.arange(seg['dTAvar'].shape[1])
+                nxt = col_dTAvar[-1] + 1
+                col_wsk = nxt + np.arange(seg['wsk'].shape[1])
 
-            segsA[:, col_s] = seg['s']
-            segsA[:, col_TA] = seg['TA']
-            segsA[:, col_TAvar] = seg['TAvar']
-            segsA[:, col_TAB] = seg['TAB']
-            segsA[:, col_TABcorr] = seg['TABcorr']
-            segsA[:, col_TABvar] = seg['TABvar']
-            segsA[:, col_dTA] = seg['dTA']
-            segsA[:, col_dTAcorr] = seg['dTAcorr']
-            segsA[:, col_dTAvar] = seg['dTAvar']
-            segsA[:, col_wsk] = seg['wsk']
-        
+            segsA = []
+            segsA.append(np.hstack((seg['s'], seg['TA'], seg['TAvar'],
+                            seg['TAB'], seg['TABcorr'], seg['TABvar'],
+                            seg['dTA'], seg['dTAcorr'], seg['dTAvar'], seg['wsk']))[i1[s]:i2[s]])
+
+            # segsA[:, col_s] = seg['s']
+            # segsA[:, col_TA] = seg['TA']
+            # segsA[:, col_TAvar] = seg['TAvar']
+            # segsA[:, col_TAB] = seg['TAB']
+            # segsA[:, col_TABcorr] = seg['TABcorr']
+            # segsA[:, col_TABvar] = seg['TABvar']
+            # segsA[:, col_dTA] = seg['dTA']
+            # segsA[:, col_dTAcorr] = seg['dTAcorr']
+            # segsA[:, col_dTAvar] = seg['dTAvar']
+            # segsA[:, col_wsk] = seg['wsk']
+        segsA = segsA[0]
+        segs = []
+        if len(i1) == 3:
+            print('Something is very wrong.')
+        elif len(i1) == 2:
+            segs.append((segsA[0] + segsA[1]) / 2)
+        elif len(i1) > 2:
+            segs.append(segsA[0])
+            for s in range(1, len(i1) - 1, 2):
+                segs.append((segsA[s] + segsA[s + 1]) / 2)
+            if len(i1) % 2 != 0:
+                segs.append(segsA[-1])
+        else:
+            segs = segsA
+
+        if len(i1) > 2:
+            for s in range(len(segs) - 1):
+                segs[s][-1, :] = (segsA[s][-1, :] + segsA[s + 1][0, :]) / 2
+                segs[s + 1][0, :] = []
+
+        else:
+            pass
+
+        segsA = np.concatenate(segs, axis=0)
         self.tens['s'] = np.round(segsA[:, col_s])
         self.tens['lags']['TA'] = segsA[:, col_TA]
         self.tens['lags']['TAvar'] = segsA[:, col_TAvar]
@@ -299,7 +364,7 @@ class sw_process:
             wo = np.arccos((r[peakInd-1] + r[peakInd+1]) / (2 * r[peakInd]))
             theta = np.arctan((r[peakInd-1] - r[peakInd+1]) / (2 * r[peakInd] * np.sin(wo)))
             delta = - theta / wo
-            lagFrames = peakInd - 1 - shift + delta
+            lagFrames = peakInd - shift + delta
         else:
             lagFrames = peakInd - 1 - shift
         # TODO: Might need to remove the -1 above
@@ -360,11 +425,14 @@ class sw_process:
         for ii in range(i2 - i1):
             # forward or backward
             if bkwd:
-                i = i2 - ii
+                i = i2 - ii -1
                 ilst = i + 1
             else:
+                
                 i = ii + i1
                 ilst = i - 1
+
+            # print(ii, i1, i)
 
             # for each accelerometer
             for j in range(nacc):
@@ -380,11 +448,15 @@ class sw_process:
 
                 # print(i, ilst)
                 # print(seg)
+                # print(acc)
 
                 # between accelerometers
                 if j < nacc-1:
                     template = acc[(self.tens['cp']['taps'][i] + self.tens['pp']['template'] + s).astype(int), j]
                     search = acc[(self.tens['cp']['taps'][i] + self.tens['pp']['TABsearch'] + s).astype(int), j + 1]
+                    # print((self.tens['cp']['taps'][i] + self.tens['pp']['TABsearch'] + s).astype(int))
+                    # print(j+1)
+                    # print(template, search, ad['freq'], self.tens['pp']['TABshift'])
                     lagframes, seg['TAB'][i, j], seg['TABcorr'][i, j], _ = self.computeLag(template, search, ad['freq'], self.tens['pp']['TABshift'])
                     seg['TABvar'][i, j] = np.dot(self.tens['pp']['TABvarp'], [seg['TABcorr'][i, j] ** 2, seg['TABcorr'][i, j], 1])
 
@@ -398,7 +470,7 @@ class sw_process:
             # Kalman
             if ii == 0:
                 # Initialize the estimate of the arrival times TA and TB, since DA and DB are  in mm, comes out in ms
-                xe = (self.tens['cp']['accdis'] / np.mean(np.diff(self.tens['cp']['accdis']) / seg['TAB'][i, :])).reshape(-1, 1)
+                xe = np.squeeze((self.tens['cp']['accdis'] / np.mean(np.diff(self.tens['cp']['accdis']) / seg['TAB'][i, :])).reshape(-1, 1))
                 seg['TA'][i, :] = xe.flatten()
                 seg['TAvar'][i, :] = np.zeros_like(seg['TA'][i, :])
 
@@ -416,20 +488,24 @@ class sw_process:
                 u = seg['dTA'][i, :].reshape(-1, 1)
 
                 # Q is the process noise covariance. It represents the amount of uncertainty in the model
-                np.fill_diagonal(Q, np.diag(seg['dTAvar'][i, :]))
+                for d in range(nacc):
+                    Q[d,d] = seg['dTAvar'][i, d]
 
                 # R is the measurement noise covariance. It represents the amount of uncertainty in the measurements
-                np.fill_diagonal(R, np.diag(seg['TABvar'][i, :]))
-                np.fill_diagonal(R[nacc - 1:, nacc - 1:], (self.tens['pp']['accdis_sd'] * np.mean(xe.flatten()) ** 2))
+                # np.fill_diagonal(R, np.diag(seg['TABvar'][i, :]))
+                # np.fill_diagonal(R[nacc - 1:, nacc - 1:], (self.tens['pp']['accdis_sd'] * np.mean(xe.flatten()) ** 2))
+                for d in range(nacc-1):
+                    R[d,d] = seg['TABvar'][i, d]
+                    R[(nacc-1)+d, (nacc-1)+d] = (self.tens['pp']['accdis_sd'] * np.mean(xe.flatten())) ** 2
 
                 # Kalman filter update
-                xe, P = self.kalman_update(xe, P, B, F, Q, H, R, u, z)
+                # xe = np.squeeze(xe)
+                xe, P = kalman_update(xe, P, B, F, Q, H, R, u, z)
 
                 # Save the results
                 seg['TA'][i, :] = xe.flatten()
                 seg['TAvar'][i, :] = np.diag(P).flatten()
-
-            if ii == 1:
+            if ii == 0:
                 weights = np.ones_like(seg['TAvar'][i, :])
             else:
                 weights = 1. / seg['TAvar'][i, :]
